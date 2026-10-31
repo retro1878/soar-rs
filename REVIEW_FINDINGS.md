@@ -46,7 +46,7 @@ The implementation is exceptionally well-structured, featuring a clean **sans-I/
 > 
 > **Immediate Mitigations:**
 > 1. Delete `soar-ssh.sh` from disk or add it to `.gitignore`.
-> 2. Rotate the passwords for `root@85.155.228.13` and `root@206.1.100.223`.
+> 2. Rotate the passwords for root on the bastion jump host and the target host.
 > 3. Switch to SSH key-based authentication with a dedicated bastion configuration.
 
 ---
