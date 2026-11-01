@@ -1,8 +1,10 @@
 # Third-party data
 
-`resolvers/ir.txt` and `ranges/ir.txt` are copied unmodified from KevinNet DNS
-(https://github.com/kamalalhagh/kevinnet-dns.git, commit a331430, 2026-05-26).
-`resolvers/ir.txt` is KevinNet's snapshot of the range-scout WhiteDNS list; `ranges/ir.txt` aggregates RIPE/IRINN allocations.
+`ranges/ir.txt` is copied unmodified from KevinNet DNS
+(https://github.com/kamalalhagh/kevinnet-dns.git, commit a331430, 2026-05-26) and aggregates
+RIPE/IRINN allocations. `resolvers/ir.txt` was replaced on 2026-11-01 with a separately
+maintained verified-working list (snapshot recorded in the file header); it is no longer
+KevinNet's WhiteDNS snapshot.
 
 KevinNet DNS is distributed under the MIT License:
 

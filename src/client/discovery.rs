@@ -119,8 +119,8 @@ fn system_resolvers() -> Vec<String> {
 }
 
 impl Discovery {
-    /// Resolvers to vet, in order: cached, extra, the device's own, the country's bundled list,
-    /// global public resolvers, then sampled in-country addresses.
+    /// Resolvers to vet, in order: cached, extra, the device's own, global public resolvers,
+    /// the country's bundled list (shuffled per client), then sampled in-country addresses.
     pub fn candidates(&self) -> Vec<String> {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
@@ -142,15 +142,30 @@ impl Discovery {
         }
         let country = self.country.trim().to_ascii_lowercase();
         add(&mut system_resolvers().into_iter());
-        if !country.is_empty() {
-            add(&mut lines(bundled_resolvers(&country)).map(String::from));
-        }
+        // Global before the country list: it is a handful of probes, so a stale country list
+        // can't delay the fallback by minutes.
         add(&mut lines(bundled_resolvers("global")).map(String::from));
+        if !country.is_empty() {
+            let mut c: Vec<String> = lines(bundled_resolvers(&country))
+                .map(String::from)
+                .collect();
+            shuffle(&mut c);
+            add(&mut c.into_iter());
+        }
         if !country.is_empty() && self.sample_ranges > 0 {
             let ranges: Vec<&str> = lines(bundled_ranges(&country)).collect();
             add(&mut sample_ranges(&ranges, self.sample_ranges).into_iter());
         }
         out
+    }
+}
+
+/// Fisher-Yates over a slice, so each client probes a different order: devices must not all hit
+/// the same leading resolvers, and the kept paths shouldn't all sit in one network.
+fn shuffle<T>(v: &mut [T]) {
+    let mut rng = OsRng;
+    for i in (1..v.len()).rev() {
+        v.swap(i, (rng.next_u32() as usize) % (i + 1));
     }
 }
 
@@ -216,6 +231,21 @@ mod tests {
             ..Discovery::default()
         };
         assert_eq!(d.candidates(), ["192.0.2.1:53", "192.0.2.2:5353"]);
+    }
+
+    #[test]
+    fn bundled_country_is_shuffled_per_call_but_complete() {
+        let d = Discovery {
+            country: "ir".into(),
+            ..Discovery::default()
+        };
+        let a = d.candidates();
+        let b = d.candidates();
+        assert_ne!(a, b, "each run must probe a different order");
+        let (mut sa, mut sb) = (a.clone(), b.clone());
+        sa.sort();
+        sb.sort();
+        assert_eq!(sa, sb, "shuffling must not drop or add candidates");
     }
 
     #[test]

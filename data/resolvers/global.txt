@@ -1,5 +1,6 @@
-# Global public resolvers, tried after country-specific candidates (or when the country is
-# unknown). Often blocked in censored networks, but cheap to try.
+# Global public resolvers, tried before the country-specific list (or when the country is
+# unknown): a handful of probes, and a fast fallback if the country list is stale. Often blocked
+# in censored networks, but cheap to try.
 1.1.1.1
 1.0.0.1
 8.8.8.8
