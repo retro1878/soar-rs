@@ -22,6 +22,34 @@ When you complete a work session, investigate a problem, or make architectural c
 
 ## Agent Log Entries
 
+### [2026-11-01] Claude Code (Opus) - Resolver-list review follow-up
+- **Summary**: Confirmed all three findings in `REVIEW_FINDINGS.md` §7 against the source, implemented fixes for the two behavioral ones, corrected attribution, and rebuilt/redeployed the client.
+- **Key Discoveries / Decisions**:
+  - Confirmed: `Discovery::candidates()` preserved file order and `ClientCore::discover()` consumed candidates sequentially to `want = 16`. With the new IP-sorted 6,976-entry list, every uncached client probed the same leading prefixes and could cluster all 16 paths in one network.
+  - Added `shuffle()` (Fisher-Yates over `OsRng`) to the bundled country list in `src/client/discovery.rs`, matching the existing `sample_ranges` intent of per-client ordering.
+  - Moved `global.txt` ahead of the country list: eight probes is bounded, and a stale country list can no longer delay the fallback by ~20+ minutes. `data/resolvers/global.txt`'s comment updated to match.
+  - No test pinned bundled order (`candidates_in_order_without_duplicates` uses `no_bundled: true`), so the change is behaviorally isolated; added `bundled_country_is_shuffled_per_call_but_complete`.
+  - Attribution fixed: `data/THIRD_PARTY.md` now says `resolvers/ir.txt` is a separately maintained 2026-11-01 list; `ranges/ir.txt` remains KevinNet.
+- **Verification Performed**: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings` clean, `cargo test` all pass (unit + 9 integration + doc-tests). Release binary `d223aece…` deployed to the client box; two tunnel requests returned HTTP 200 in 2.66 s and 2.39 s.
+- **Next Steps / Handoff**: Push the commits when the user asks. After a push, re-sync the build clone so it doesn't diverge from the fork.
+- **Preferred Communication Style**: exact file:line citations, verified claims over paraphrase, credentials never reproduced in notes or commits.
+
+### [2026-11-01 10:50 UTC] Antigravity - Review of commit `302c548` (`data/resolvers/ir.txt` refresh)
+- **Summary**:
+  - Reviewed commit `302c548` (`data: refresh bundled Iranian resolver list`, `+6,958 / -246` lines in `data/resolvers/ir.txt`) and recorded findings in `REVIEW_FINDINGS.md` §7.
+- **Key Discoveries / Decisions**:
+  - **Data validation**: All 6,976 non-comment lines in `data/resolvers/ir.txt:4-6979` parse as valid IPv4 addresses (`2.144.5.186`..`217.219.254.5`) with 0 duplicates and 0 private/loopback/CGNAT/reserved entries.
+  - **Sorted order & herd probing (`Medium`)**: Unlike the previous 244-entry list (interleaved across ASNs), `data/resolvers/ir.txt:4-6979` is sorted in ascending IP order, including dense `/24` runs (e.g., 23 entries in `217.219.163.0/24` at `data/resolvers/ir.txt:6920-6942`). Because `Discovery::candidates()` (`src/client/discovery.rs:145-147`) preserves file order without shuffling and `ClientCore::discover()` (`src/client/core.rs:1483-1494`) advances `cand_idx` sequentially until `healthy >= d.want` (`16`, `src/client/discovery.rs:73`), uncached `-discover -country ir` clients probe `2.144.0.0/14` and `2.176.0.0/12` in lockstep and cluster all 16 paths in one ASN.
+  - **`global.txt` starvation (`Low`)**: `Discovery::candidates()` (`src/client/discovery.rs:145-152`) queues all 6,976 `ir.txt` entries before `data/resolvers/global.txt:1-10` (8 entries). At `concurrency = 16` (`src/client/core.rs:1480`) and 3 UDP timeouts (`src/client/core.rs:278,1451`) or 10 s TCP sibling timeout (`src/client/core.rs:1452`), exhausting unreachable `ir.txt` entries before reaching `global.txt` takes ~22–72 min.
+  - **Attribution drift (`Nit`)**: `data/THIRD_PARTY.md:3-5` still cites `kamalalhagh/kevinnet-dns.git` (`a331430`, 2026-05-26), whereas `data/resolvers/ir.txt:2` cites `verified-working-dns.txt, snapshot 2026-11-01 (6976 entries)`.
+- **Verification Performed**:
+  - Parsed all 6,976 entries in `data/resolvers/ir.txt` against IPv4 formatting, uniqueness, and RFC 1918 / RFC 6598 / loopback / multicast ranges; traced `Discovery::candidates()` (`src/client/discovery.rs:124-154`) and `ClientCore::discover()` (`src/client/core.rs:1436-1495`).
+- **Next Steps / Handoff**:
+  1. Consider shuffling `bundled_resolvers(&country)` per client in `Discovery::candidates()` (`src/client/discovery.rs:145-147`) using `OsRng` (or pre-interleaving `data/resolvers/ir.txt` by `/16` prefix).
+  2. Consider trying or interleaving `data/resolvers/global.txt` ahead of multi-thousand-entry country lists in `Discovery::candidates()` (`src/client/discovery.rs:145-148`).
+  3. Update `data/THIRD_PARTY.md:3-5` if `verified-working-dns.txt` provenance differs from `kevinnet-dns`.
+- **Preferred Communication Style**: exact file:line citations, verified claims over paraphrase, credentials never reproduced in notes or commits.
+
 ### [2026-10-31 20:05 UTC] Antigravity (Gemini 3.8 Flash High) - Credential sanitization & alignment
 - **Summary**:
   - Fully redacted remaining IP addresses and host references in `REVIEW_FINDINGS.md:49` and `AGENT_NOTES.md`.

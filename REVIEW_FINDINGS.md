@@ -154,9 +154,32 @@ The implementation is exceptionally well-structured, featuring a clean **sans-I/
 
 ---
 
-## 7. Action Items & Recommendations
+## 7. Review of Commit `302c548` (`data/resolvers/ir.txt` Refresh)
 
-1. **Security (Immediate)**: Remove `soar-ssh.sh` from the working copy and rotate credentials on the target hosts.
-2. **Platform Support**: Implement Windows adapter DNS discovery in `src/client/discovery.rs`.
-3. **CI Matrix**: Consider adding a Windows runner (`windows-latest`) to `.github/workflows/ci.yml` alongside `ubuntu-latest` to verify dual-stack socket binding and compilation on Windows targets.
-4. **Fuzzing**: The Sans-I/O design makes `parse_query`, `parse_answer`, and `Session::receive` ideal candidates for `cargo-fuzz` / `libfuzzer-sys`.
+**Reviewed Commit**: `302c548` (`data: refresh bundled Iranian resolver list`, 2026-11-01)
+
+### 7.1 Data Validation
+- Replaces the 244-entry May 2026 list in `data/resolvers/ir.txt` with 6,976 entries (`data/resolvers/ir.txt:1-6979`).
+- All 6,976 non-comment lines parse as valid IPv4 addresses (`2.144.5.186` through `217.219.254.5`), with 0 duplicates and 0 private/loopback/CGNAT/reserved addresses.
+
+### 7.2 Behavioral & Discovery Findings
+1. **Numerically Sorted Order vs. Unshuffled Probing (`Medium`)**:
+   - `data/resolvers/ir.txt:4-6979` is sorted in ascending numerical order, whereas the previous 244-entry list was interleaved across ASNs (`185.212.*`, `46.100.*`, `5.202.*`, `93.114.*`).
+   - `Discovery::candidates()` (`src/client/discovery.rs:145-147`) appends `bundled_resolvers(&country)` in file order without shuffling, and `ClientCore::discover()` (`src/client/core.rs:1483-1494`) pulls from `self.cands[self.cand_idx]` sequentially until `healthy >= d.want` (`16`, `src/client/discovery.rs:73`).
+   - **Impact**: Uncached clients with `-discover -country ir` probe the same leading prefixes (`2.144.0.0/14`, `2.176.0.0/12`) in lockstep, concentrating load and clustering all `want = 16` healthy paths in a single ASN. Dense `/24` runs (e.g., 23 entries in `217.219.163.0/24` at `data/resolvers/ir.txt:6920-6942`) are also probed linearly.
+   - **Recommendation**: Shuffle `bundled_resolvers(&country)` per client in `Discovery::candidates()` (`src/client/discovery.rs:145-147`) using `OsRng` (matching `sample_ranges` in `src/client/discovery.rs:157-159`), or pre-interleave `data/resolvers/ir.txt` across `/16` prefixes.
+2. **Delayed Fallback to `global.txt` and `sample_ranges` (`Low`)**:
+   - `Discovery::candidates()` (`src/client/discovery.rs:145-152`) queues all 6,976 entries of `ir.txt` before `bundled_resolvers("global")` (`data/resolvers/global.txt:1-10`, 8 resolvers) and `sample_ranges`.
+   - At `concurrency = 16` (`src/client/discovery.rs:74`, `src/client/core.rs:1480`), where pruning an unresponsive candidate requires 3 UDP losses (`p.out_n >= 3 && p.inflight == 0` at `rto() = 1s`, `src/client/core.rs:278,1451`) or a 10 s TCP timeout (`src/client/core.rs:1452`), exhausting 6,976 dead entries before reaching `global.txt` takes ~22 minutes (UDP-only) to ~72 minutes (`TcpMode::Auto`).
+   - **Recommendation**: Interleave or try the 8 cheap `global.txt` candidates early in `Discovery::candidates()` (`src/client/discovery.rs:145-148`).
+3. **Attribution Drift in `data/THIRD_PARTY.md` (`Nit`)**:
+   - `data/THIRD_PARTY.md:3-5` still attributes `resolvers/ir.txt` to unmodified `kamalalhagh/kevinnet-dns.git` (`commit a331430, 2026-05-26`), whereas `data/resolvers/ir.txt:2` now cites `verified-working-dns.txt, snapshot 2026-11-01 (6976 entries)`.
+
+---
+
+## 8. Action Items & Recommendations
+
+1. **Discovery Shuffling (`src/client/discovery.rs:145-147`)**: Shuffle `bundled_resolvers(&country)` (or interleave `data/resolvers/ir.txt` by prefix) and avoid starving `global.txt` behind 6,976 sequential candidates.
+2. **Attribution (`data/THIRD_PARTY.md:3-5`)**: Update `data/THIRD_PARTY.md` to reflect the `2026-11-01` `verified-working-dns.txt` snapshot in `data/resolvers/ir.txt:2`.
+3. **Security (Done in Repo; Operational Follow-Up)**: `soar-ssh.sh` was moved out of the repo and ignored in `8e2230a`; rotate credentials on the bastion and target hosts if the file ever left the machine.
+4. **Deferred / Non-Linux Items**: Windows adapter DNS discovery (`src/client/discovery.rs:107-119`), Windows CI runner, and fuzzing remain documented for future reference (production target is Linux).
